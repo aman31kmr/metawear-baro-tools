@@ -33,6 +33,8 @@ python3 metawear_baro_log.py usb-scan
 ## Commands you ran (example session)
 
 ```bash
+python3 metawear_baro_stream.py CF:96:FE:AD:63:E9 --altitude --seconds 30 --csv ./stair2s2.csv
+
 python3 /home/aman/metawear_baro_log.py CF:96:FE:AD:63:E9 start --altitude --clear
 python3 /home/aman/metawear_baro_log.py CF:96:FE:AD:63:E9 stop
 python3 /home/aman/metawear_baro_log.py CF:96:FE:AD:63:E9 download --csv ./out_room.csv --altitude --plot
