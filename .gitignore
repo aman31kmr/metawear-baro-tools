@@ -1,0 +1,12 @@
+.metawear/
+__pycache__/
+*.pyc
+
+# Data outputs
+*.csv
+*.png
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
