@@ -1,0 +1,28 @@
+--- a/mbientlab/metawear/__init__.py
++++ b/mbientlab/metawear/__init__.py
+@@ -70,15 +70,22 @@ def create_voidp(fn, **kwargs):
+     e = kwargs['event'] if 'event' in kwargs else Event()
+ 
+     result = [None]
+     def handler(ctx, pointer):
+-        result[0] = RuntimeError("Could not create " + (kwargs['resource'] if 'resource' in kwarg else "resource") ) if pointer == None else pointer
++        result[0] = (
++            RuntimeError(
++                "Could not create " + (kwargs["resource"] if "resource" in kwargs else "resource")
++            )
++            if pointer is None
++            else pointer
++        )
+         e.set()
+ 
+     callback_wrapper = FnVoid_VoidP_VoidP(handler)
+     fn(callback_wrapper)
+     e.wait()
+ 
+     e.clear()
+-    if (result[0] is RuntimeError):
++    if isinstance(result[0], RuntimeError):
+         raise result[0]
+     return result[0]
+ 
+ def create_voidp_int(fn, **kwargs):
