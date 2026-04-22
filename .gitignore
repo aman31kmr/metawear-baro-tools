@@ -10,3 +10,37 @@ __pycache__/
 .DS_Store
 *.swp
 *.swo
+
+# This repo lives at /home/aman (home directory).
+# Ignore non-project folders/files so `git status` stays usable.
+Documents/
+Downloads/
+Desktop/
+snap/
+.cache/
+.config/
+.cursor/
+.local/
+.npm/
+.npm-global/
+.pyenv/
+.pki/
+.ssh/
+.thunderbird/
+.var/
+.bun/
+.codex/
+.openclaw/
+.rpmdb/
+.gnupg/
+.bash_history
+.bashrc
+.bash_logout
+.profile
+.python_history
+.gitconfig
+.npmrc
+.lesshst
+.wget-hsts
+.sudo_as_admin_successful
+.xsessionrc

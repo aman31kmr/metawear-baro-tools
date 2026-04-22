@@ -40,6 +40,7 @@ from __future__ import print_function
 import argparse
 import csv
 import os
+import subprocess
 import sys
 from ctypes import byref, cast, POINTER, c_ubyte, c_void_p
 from threading import Event
@@ -66,8 +67,54 @@ def connect_device(device):
     Connect + SDK init. MetaWear chooses USB serial when ``MetaWearUSB.is_enumerated``,
     else Bluetooth — same MAC address in both cases.
     """
+    usb_enumerated = bool(getattr(device.usb, "is_enumerated", False))
+    # USB can temporarily disappear/re-enumerate after resets; retry there too.
+    attempts = 6 if usb_enumerated else 6
+
+    def _run_btctl(cmds):
+        # bluetoothctl is the most portable way to nudge BlueZ without sudo.
+        try:
+            p = subprocess.run(
+                ["bluetoothctl"],
+                input=("\n".join(cmds) + "\n").encode("utf-8"),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=6,
+            )
+            return p.returncode
+        except subprocess.TimeoutExpired:
+            return 124
+
+    def _ble_warmup(addr):
+        # Best-effort cleanup to avoid "Device or resource busy"/"No route to host".
+        _run_btctl(
+            [
+                "scan off",
+                "disconnect {}".format(addr),
+                "connect {}".format(addr),
+                "disconnect {}".format(addr),
+            ]
+        )
+
     print("Connecting ...", flush=True)
-    metawear_connect(device)
+    last_err = None
+    for _ in tqdm(range(attempts), desc="connect", unit="try", disable=(attempts <= 1)):
+        if not usb_enumerated:
+            _ble_warmup(device.address)
+            sleep(0.3)
+        try:
+            metawear_connect(device)
+            last_err = None
+        except Exception as e:
+            last_err = e
+        if device.is_connected and last_err is None:
+            break
+        # Backoff helps when the serial port is re-enumerating or BlueZ is unwinding state.
+        sleep(1.0 if usb_enumerated else 1.5)
+
+    if last_err is not None:
+        raise last_err
     if not device.is_connected:
         raise RuntimeError("connect() returned but device.is_connected is False")
     if device.in_metaboot_mode:
@@ -125,6 +172,14 @@ def cmd_start(args):
     connect_device(device)
     board = device.board
 
+    # If a previous run crashed/disconnected mid-stream, the board can be left logging.
+    # Stop + flush first so logger registration succeeds reliably.
+    try:
+        stop_collection(board, "prep")
+        sleep(0.4)
+    except Exception:
+        pass
+
     if args.clear:
         print("Clearing previous onboard log entries ...", flush=True)
         libmetawear.mbl_mw_logging_clear_entries(board)
@@ -138,10 +193,47 @@ def cmd_start(args):
         sig = libmetawear.mbl_mw_baro_bosch_get_pressure_data_signal(board)
 
     # Registers the logger on the board; must complete before logging_start.
-    _baro_logger = create_voidp(
-        lambda fn: libmetawear.mbl_mw_datasignal_log(sig, None, fn),
-        resource="baro_logger",
-    )
+    def _create_baro_logger():
+        return create_voidp(
+            lambda fn: libmetawear.mbl_mw_datasignal_log(sig, None, fn),
+            resource="baro_logger",
+        )
+
+    try:
+        _baro_logger = _create_baro_logger()
+    except RuntimeError as e:
+        # On some firmware states, the logger register call returns NULL until after a reset.
+        msg = str(e)
+        if "Could not create baro_logger" not in msg:
+            raise
+        print("baro_logger create failed; resetting board and retrying once ...", flush=True)
+        try:
+            libmetawear.mbl_mw_debug_reset(board)
+        except Exception:
+            pass
+        sleep(2.0)
+        try:
+            device.disconnect()
+        except Exception:
+            pass
+        device = MetaWear(args.mac, **kwargs)
+        connect_device(device)
+        board = device.board
+        try:
+            stop_collection(board, "prep-after-reset")
+            sleep(0.4)
+        except Exception:
+            pass
+        if args.clear:
+            print("Clearing previous onboard log entries (after reset) ...", flush=True)
+            libmetawear.mbl_mw_logging_clear_entries(board)
+            sleep(0.5)
+        configure_baro_board(board)
+        if args.altitude:
+            sig = libmetawear.mbl_mw_baro_bosch_get_altitude_data_signal(board)
+        else:
+            sig = libmetawear.mbl_mw_baro_bosch_get_pressure_data_signal(board)
+        _baro_logger = _create_baro_logger()
 
     print("Starting onboard logging + barometer ...", flush=True)
     libmetawear.mbl_mw_logging_start(board, 0)

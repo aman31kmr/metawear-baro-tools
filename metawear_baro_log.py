@@ -47,13 +47,14 @@ from time import monotonic, sleep
 
 from tqdm import tqdm
 
-from mbientlab.metawear import MetaWear, libmetawear, parse_value, create_voidp
+from mbientlab.metawear import MetaWear, libmetawear, parse_value
 
 from metawear_connect_safe import metawear_connect
 
 from mbientlab.metawear.cbindings import (
     BaroBoschOversampling,
     FnVoid_VoidP_DataP,
+    FnVoid_VoidP_VoidP,
     FnVoid_VoidP_UByte_Long_UByteP_UByte,
     FnVoid_VoidP_UInt_UInt,
     FnVoid_VoidP_VoidP_VoidP_UInt,
@@ -61,12 +62,87 @@ from mbientlab.metawear.cbindings import (
 )
 
 
-def connect_device(device):
+def create_voidp_safe(fn, resource="resource", retries=5, retry_sleep_s=0.6):
+    """
+    Replacement for mbientlab.metawear.create_voidp.
+
+    The installed MetaWear SDK's `create_voidp` helper has a NameError bug (`kwarg`)
+    that breaks logger creation callbacks.
+    """
+    e = Event()
+    result = [None]
+
+    def handler(_ctx, pointer):
+        ok = False
+        pv = pointer
+        if pointer is None:
+            ok = False
+        elif isinstance(pointer, int):
+            ok = pointer != 0
+        else:
+            ok = getattr(pointer, "value", 0) not in (None, 0)
+            pv = getattr(pointer, "value", pointer)
+        result[0] = pv if ok else RuntimeError("Could not create {}".format(resource))
+        e.set()
+
+    for attempt in range(1, retries + 1):
+        e.clear()
+        result[0] = None
+        callback_wrapper = FnVoid_VoidP_VoidP(handler)
+        fn(callback_wrapper)
+        _keep = callback_wrapper
+        e.wait(timeout=10.0)
+        if not e.is_set():
+            err = RuntimeError("Timed out creating {}".format(resource))
+        elif isinstance(result[0], BaseException):
+            err = result[0]
+        else:
+            return result[0]
+
+        # Retry path (BLE stacks sometimes reject logger creation mid-state)
+        if attempt < retries:
+            sleep(retry_sleep_s * attempt)
+            continue
+        raise err
+
+
+def _is_ptr_valid(ptr):
+    if ptr is None:
+        return False
+    if isinstance(ptr, int):
+        return ptr != 0
+    pv = getattr(ptr, "value", None)
+    if pv is None:
+        return bool(ptr)
+    return pv != 0
+
+
+def _as_void_p(ptr):
+    if ptr is None:
+        return c_void_p(0)
+    if isinstance(ptr, int):
+        return c_void_p(ptr)
+    return ptr
+
+
+def connect_device(device, require_usb=False):
     """
     Connect + SDK init. MetaWear chooses USB serial when ``MetaWearUSB.is_enumerated``,
     else Bluetooth — same MAC address in both cases.
     """
-    print("Connecting ...", flush=True)
+    # Helpful diagnostics: USB is selected only when the board enumerates as VID:PID 1915:D978
+    usb_enumerated = False
+    usb_path = None
+    try:
+        usb_enumerated = bool(device.usb.is_enumerated)
+        usb_path = device.usb._device_path(device.address) if usb_enumerated else None
+    except Exception:
+        pass
+
+    print(
+        "Connecting ... (usb_enumerated={}, usb_path={})".format(usb_enumerated, usb_path),
+        flush=True,
+    )
     metawear_connect(device)
     if not device.is_connected:
         raise RuntimeError("connect() returned but device.is_connected is False")
@@ -79,6 +155,12 @@ def connect_device(device):
         )
         sleep(0.3)
     else:
+        if require_usb:
+            raise RuntimeError(
+                "USB was required but the SDK selected BLE. "
+                "Run `python3 metawear_baro_log.py usb-scan` to confirm enumeration "
+                "and ensure you are using the same MAC."
+            )
         print("Transport: Bluetooth LE", flush=True)
         libmetawear.mbl_mw_settings_set_connection_parameters(device.board, 7.5, 7.5, 0, 6000)
         sleep(1.5)
@@ -109,8 +191,8 @@ def cmd_stop(args):
     kwargs = {}
     if args.hci:
         kwargs["hci_mac"] = args.hci
-    device = MetaWear(args.mac, **kwargs)
-    connect_device(device)
+    device = MetaWear(args.mac, deserialize=not args.no_deserialize, **kwargs)
+    connect_device(device, require_usb=args.require_usb)
     stop_collection(device.board, "halt capture")
     sleep(0.5)
     device.disconnect()
@@ -121,27 +203,112 @@ def cmd_start(args):
     kwargs = {}
     if args.hci:
         kwargs["hci_mac"] = args.hci
-    device = MetaWear(args.mac, **kwargs)
-    connect_device(device)
+    device = MetaWear(args.mac, deserialize=not args.no_deserialize, **kwargs)
+    connect_device(device, require_usb=args.require_usb)
     board = device.board
 
+    # Give slow BLE stacks more time for control traffic
+    try:
+        libmetawear.mbl_mw_metawearboard_set_time_for_response(board, 3000)
+    except Exception:
+        pass
+
     if args.clear:
+        print("Stopping any existing logging and clearing device logger state ...", flush=True)
+        # Stop + flush so we are not modifying logger routes mid-stream
+        try:
+            libmetawear.mbl_mw_logging_stop(board)
+        except Exception:
+            pass
+        try:
+            libmetawear.mbl_mw_baro_bosch_stop(board)
+        except Exception:
+            pass
+        try:
+            libmetawear.mbl_mw_logging_flush_page(board)
+        except Exception:
+            pass
+        sleep(0.5)
+
+        # Remove any existing loggers (they persist across sessions and can block new creation)
+        removed = 0
+        for lid in range(0, 32):
+            try:
+                ptr = libmetawear.mbl_mw_logger_lookup_id(board, c_ubyte(lid))
+                if _is_ptr_valid(ptr):
+                    libmetawear.mbl_mw_logger_remove(_as_void_p(ptr))
+                    removed += 1
+            except Exception:
+                pass
+        if removed:
+            print("Removed {} existing logger(s).".format(removed), flush=True)
+
+        # Remove events (defensive cleanup)
+        try:
+            libmetawear.mbl_mw_event_remove_all(board)
+        except Exception:
+            pass
+
         print("Clearing previous onboard log entries ...", flush=True)
         libmetawear.mbl_mw_logging_clear_entries(board)
-        sleep(0.5)
+        sleep(0.8)
 
     configure_baro_board(board)
 
     if args.altitude:
-        sig = libmetawear.mbl_mw_baro_bosch_get_altitude_data_signal(board)
+        sig = _as_void_p(libmetawear.mbl_mw_baro_bosch_get_altitude_data_signal(board))
     else:
-        sig = libmetawear.mbl_mw_baro_bosch_get_pressure_data_signal(board)
+        sig = _as_void_p(libmetawear.mbl_mw_baro_bosch_get_pressure_data_signal(board))
+
+    if not _is_ptr_valid(sig):
+        device.disconnect()
+        raise RuntimeError("Barometer signal pointer is NULL/invalid; module may be unavailable.")
 
     # Registers the logger on the board; must complete before logging_start.
-    _baro_logger = create_voidp(
-        lambda fn: libmetawear.mbl_mw_datasignal_log(sig, None, fn),
-        resource="baro_logger",
-    )
+    # Small settle helps avoid 'mid state' issues on BLE.
+    sleep(0.5)
+    try:
+        _baro_logger = create_voidp_safe(
+            lambda fn, s=sig: libmetawear.mbl_mw_datasignal_log(s, None, fn),
+            resource="baro_logger",
+            retries=args.create_retries,
+        )
+    except RuntimeError as err:
+        if args.reset_on_fail:
+            print(
+                "Logger creation failed; attempting board reset and one retry ...",
+                flush=True,
+            )
+            try:
+                libmetawear.mbl_mw_debug_reset(board)
+            except Exception:
+                pass
+            # Give the board time to reboot and the transport to settle
+            sleep(2.0)
+            try:
+                device.disconnect()
+            except Exception:
+                pass
+            sleep(1.0)
+            connect_device(device, require_usb=args.require_usb)
+            board = device.board
+            try:
+                libmetawear.mbl_mw_metawearboard_set_time_for_response(board, 3000)
+            except Exception:
+                pass
+            configure_baro_board(board)
+            if args.altitude:
+                sig = _as_void_p(libmetawear.mbl_mw_baro_bosch_get_altitude_data_signal(board))
+            else:
+                sig = _as_void_p(libmetawear.mbl_mw_baro_bosch_get_pressure_data_signal(board))
+            sleep(0.5)
+            _baro_logger = create_voidp_safe(
+                lambda fn, s=sig: libmetawear.mbl_mw_datasignal_log(s, None, fn),
+                resource="baro_logger",
+                retries=args.create_retries,
+            )
+        else:
+            raise err
 
     print("Starting onboard logging + barometer ...", flush=True)
     libmetawear.mbl_mw_logging_start(board, 0)
@@ -226,8 +393,8 @@ def cmd_download(args):
     kwargs = {}
     if args.hci:
         kwargs["hci_mac"] = args.hci
-    device = MetaWear(args.mac, **kwargs)
-    connect_device(device)
+    device = MetaWear(args.mac, deserialize=not args.no_deserialize, **kwargs)
+    connect_device(device, require_usb=args.require_usb)
     board = device.board
 
     try:
@@ -452,6 +619,11 @@ def main():
     )
     parser.add_argument("--hci", default=None, help="HCI adapter BLE MAC (Linux)")
     parser.add_argument(
+        "--require-usb",
+        action="store_true",
+        help="Fail if the board is not accessed over USB serial",
+    )
+    parser.add_argument(
         "--clear",
         action="store_true",
         help="With start: erase onboard log memory before this session",
@@ -471,6 +643,23 @@ def main():
         "--plot",
         action="store_true",
         help="With download: also write a .png next to the CSV",
+    )
+    parser.add_argument(
+        "--no-deserialize",
+        action="store_true",
+        help="Do not load cached SDK state from .metawear/ (helps when cache is stale/corrupt)",
+    )
+    parser.add_argument(
+        "--create-retries",
+        type=int,
+        default=8,
+        metavar="N",
+        help="Retries for creating a logger route (default: 8; helpful on BLE mid-state errors)",
+    )
+    parser.add_argument(
+        "--reset-on-fail",
+        action="store_true",
+        help="If logger creation fails, issue mbl_mw_debug_reset and retry once",
     )
     parser.add_argument(
         "--discover-timeout",
