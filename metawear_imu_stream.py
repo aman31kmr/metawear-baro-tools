@@ -339,20 +339,91 @@ def save_imu_session_plot(csv_path):
         if use_board_time
         else "Wall time since first host-received sample in that stream (s)"
     )
+    plot_tail_s = None
+    if use_board_time:
+        t_all = []
+        for k in ("acc", "gyro", "mag"):
+            t_all.extend(series[k]["t"])
+        if t_all:
+            span_all = max(t_all) - min(t_all)
+            if span_all > 600.0:  # >10 minutes
+                plot_tail_s = 180.0
+                print(
+                    "NOTE: {} spans {:.0f}s; plotting last {:.0f}s for readability.".format(
+                        os.path.basename(csv_path),
+                        span_all,
+                        plot_tail_s,
+                    ),
+                    flush=True,
+                )
     for ax, (title, key) in zip(axes, titles):
         td, md = series[key]["t"], series[key]["m"]
         if td:
-            # Downsample for legible static PNGs; live web UI remains fully interactive.
-            n = len(td)
-            stride = max(1, n // 6000)
-            if stride > 1:
-                td = td[::stride]
-                md = md[::stride]
+            # Sort and break long gaps so separate sessions don't draw a straight line.
+            pairs = sorted(zip(td, md), key=lambda p: p[0])
+            td = [p[0] for p in pairs]
+            md = [p[1] for p in pairs]
+            if len(td) >= 8:
+                dts = [td[i] - td[i - 1] for i in range(1, len(td)) if td[i] > td[i - 1]]
+                if dts:
+                    med_dt = sorted(dts)[len(dts) // 2]
+                    gap_s = max(2.0, 50.0 * float(med_dt))
+                else:
+                    gap_s = 2.0
+                td2, md2 = [td[0]], [md[0]]
+                for i in range(1, len(td)):
+                    if td[i] - td[i - 1] > gap_s:
+                        td2.append(float("nan"))
+                        md2.append(float("nan"))
+                    td2.append(td[i])
+                    md2.append(md[i])
+                td, md = td2, md2
+
+            if plot_tail_s is not None:
+                t_clean = [t for t in td if not (isinstance(t, float) and t != t)]
+                if t_clean:
+                    t_hi = max(t_clean)
+                    t_lo = t_hi - float(plot_tail_s)
+                    td = [t if (isinstance(t, float) and t != t) or t >= t_lo else float("nan") for t in td]
+                    md = [m if (isinstance(t, float) and t != t) or t >= t_lo else float("nan") for t, m in zip(td, md)]
+            # Downsample for legible static PNGs; keep NaN gaps (don't reconnect lines).
+            # Do it per contiguous segment separated by NaNs.
+            def _downsample_keep_gaps(t, m, max_points=6000):
+                seg_t, seg_m = [], []
+                out_t, out_m = [], []
+                def flush():
+                    nonlocal seg_t, seg_m, out_t, out_m
+                    if not seg_t:
+                        return
+                    n0 = len(seg_t)
+                    stride = max(1, n0 // max_points)
+                    out_t.extend(seg_t[::stride])
+                    out_m.extend(seg_m[::stride])
+                    seg_t, seg_m = [], []
+                for ti, mi in zip(t, m):
+                    if (isinstance(ti, float) and ti != ti) or (isinstance(mi, float) and mi != mi):
+                        flush()
+                        out_t.append(float("nan"))
+                        out_m.append(float("nan"))
+                        continue
+                    seg_t.append(ti)
+                    seg_m.append(mi)
+                flush()
+                return out_t, out_m
+
+            td, md = _downsample_keep_gaps(td, md, max_points=6000)
             ax.plot(td, md, color="#2563eb", linewidth=1.1, alpha=0.9, rasterized=True)
         ax.set_ylabel(title.split()[1])
         ax.set_title(title)
         ax.grid(True, alpha=0.3)
     axes[-1].set_xlabel(xlab)
+    if plot_tail_s is not None and use_board_time:
+        try:
+            t_max = max(max(series[k]["t"]) for k in ("acc", "gyro", "mag") if series[k]["t"])
+            for ax in axes:
+                ax.set_xlim(max(0.0, t_max - float(plot_tail_s)), t_max)
+        except Exception:
+            pass
     fig.suptitle(os.path.basename(csv_path), fontsize=11)
     fig.savefig(out_png, dpi=240)
     plt.close(fig)
