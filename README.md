@@ -48,6 +48,41 @@ Activity JSON is served at `GET /activity` (about 1 s refresh from the UI). Back
 | `fewshot` | Needs `--activity-model PATH` to a JSON centroid model or sklearn joblib from training (below). |
 | `nli_zero` | Optional HuggingFace NLI on a text summary of the window; install `transformers` + `torch` (slow on CPU). |
 
+### Activity recognition: what’s implemented
+
+All activity backends share the same **streaming integration**:
+
+- IMU samples arrive from sensor-fusion callbacks in `IMUStreamer._make_handler()` (`metawear_imu_stream.py`).
+- For each `acc` + `gyro` row, we call `activity.push(sensor, epoch_ms, x, y, z)` and periodically `activity.maybe_recompute(...)`.
+- The web UI polls `GET /activity` every ~1s and renders the returned JSON.
+
+Backends:
+
+- **Heuristic (`--activity-backend heuristic`)**
+  - Code: `har_imu/realtime_estimator.py`
+  - Uses a sliding window of **linear-acc magnitude** + FFT band energy (cadence proxy) + a vote smoother.
+
+- **Few-shot (`--activity-backend fewshot`)**
+  - Train: `har_imu/train_fewshot_activity.py` → `models/activity_fewshot.json` (centroid) or optional `.joblib` (sklearn).
+  - Stream: `har_imu/stream_ml_estimator.py`
+  - Extracts a compact 12-D feature vector from a window (time + spectrum summaries) and classifies by nearest centroid / RF.
+
+- **Stats-threshold (`--activity-backend stats`)** (recommended for “fast + robust” live use)
+  - Train: `har_imu/train_stats_activity.py` → `models/activity_stats.json`
+    - Computes **windowed acc magnitude SD** per activity from labeled CSVs.
+    - Learns two thresholds: **standing→walking** and **walking→running**.
+    - Default walk→run threshold is **quantile-biased** (midpoint of \(p90(walk)\) and \(p10(run)\)) to detect running earlier.
+  - Stream: `har_imu/stats_threshold_estimator.py`
+    - Computes **robust SD** by clipping within-window magnitudes to **p5..p95** (winsorization) so brief spikes/outliers don’t dominate.
+    - Adds **persistence gating** so the label only changes after it’s sustained:
+      - requires a short **streak** of consistent raw predictions
+      - enforces a minimum **dwell time** in the current state
+    - This makes “short spike” artifacts (like you created in `imu_run3.csv`) much less likely to flip the activity.
+
+- **NLI zero-shot (`--activity-backend nli_zero`)**
+  - Code: `har_imu/nli_zero_shot_estimator.py`
+  - Optional and slower: converts numeric window features into a short text summary and runs HuggingFace zero-shot classification.
+
 **Few-shot model from your labeled sessions**
 
 ```bash
