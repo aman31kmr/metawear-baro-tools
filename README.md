@@ -9,6 +9,7 @@ The vendored SDK lives under `third_party/metawear-sdk-python/`. Run scripts fro
 - **Python 3** on Linux (BLE used for streaming).
 - System packages as needed for the MetaWear Python SDK (see MbientLab docs).
 - Optional ML: `pip install -r requirements-har-ml.txt` (tqdm; sklearn/transformers only if you use those paths).
+- If you have multiple BLE adapters, pass `--hci <adapter-mac>` to the scripts that support it.
 
 ## Barometer
 
@@ -38,7 +39,7 @@ python3 metawear_baro_log.py usb-scan
 
 ```bash
 python3 metawear_imu_stream.py <MAC> --webui --activity --csv ./imu_run.csv
-```
+``
 
 Activity JSON is served at `GET /activity` (about 1 s refresh from the UI). Backends:
 
