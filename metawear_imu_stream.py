@@ -84,7 +84,7 @@ _INDEX_HTML = r"""<!doctype html>
       <canvas id="c_mag" width="600" height="200"></canvas>
     </div>
     <div class="box">
-      <h3>Barometer</h3>
+      <h3>Barometer (z-axis)</h3>
       <div><span class="pill">n=<span id="n_baro">0</span></span></div>
       <div class="vals" id="txt_baro">—</div>
       <canvas id="c_baro" width="600" height="200"></canvas>
