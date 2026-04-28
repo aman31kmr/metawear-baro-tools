@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tkinter lab UI: connect to MetaWear, then record labeled IMU segments (standing / walking / running).
+Tkinter lab UI: connect to MetaWear, then record labeled IMU segments.
 
 Each segment is one CSV file under ``<out_dir>/session_<timestamp>/`` with a constant ``activity`` column
 on every row (plus ``utc_iso``, ``epoch_ms``, ``sensor``, ``x``, ``y``, ``z``). ``manifest.jsonl`` lists
@@ -21,6 +21,12 @@ Usage (from repo root):
 If BLE reports a connect timeout (``Timed out while trying to connect to remote device``), this UI
 retries the full connect a few times before showing an error (same idea as ``connect_device`` in
 ``metawear_baro_stream.py``).
+
+Turn-detection labeling:
+  - standing: just ``standing``
+  - walking / running: choose ``straight`` / ``turn_left`` / ``turn_right`` variants.
+    CSV rows store the combined label, e.g. ``walking_turn_left``.
+    ``manifest.jsonl`` stores both ``activity`` (walking/running/standing) and ``path`` (straight/turn_left/turn_right).
 """
 from __future__ import print_function
 
@@ -77,7 +83,18 @@ def main():
     running = {"flag": False}
     session_dir = {"path": None}
     recording = {"label": None, "path": None, "counts0": None}
-    take_idx = {"standing": 0, "walking": 0, "running": 0}
+    LABEL_GROUPS = [
+        ("standing", [None]),
+        ("walking", ["straight", "turn_left", "turn_right"]),
+        ("running", ["straight", "turn_left", "turn_right"]),
+    ]
+    def _label(activity, path):
+        return activity if not path else "{}_{}".format(activity, path)
+
+    take_idx = {}
+    for act, paths in LABEL_GROUPS:
+        for p in paths:
+            take_idx[_label(act, p)] = 0
 
     root = tk.Tk()
     root.title("MetaWear IMU — labeled recording")
@@ -226,6 +243,8 @@ def main():
             messagebox.showwarning("Busy", 'Already recording "{}". Stop it first.'.format(recording["label"]))
             return
         ensure_session()
+        if label not in take_idx:
+            take_idx[label] = 0
         take_idx[label] += 1
         fn = "{}_{}_{:04d}.csv".format(label, mount, take_idx[label])
         path = os.path.join(session_dir["path"], fn)
@@ -250,17 +269,22 @@ def main():
         d_gyro = c1["gyro"] - c0["gyro"]
         d_mag = c1["mag"] - c0["mag"]
         streamer["obj"].switch_recording_file(None)
-        manifest_append(
-            {
-                "file": os.path.basename(path),
-                "activity": label,
-                "mount": mount,
-                "acc_rows_segment": d_acc,
-                "gyro_rows_segment": d_gyro,
-                "mag_rows_segment": d_mag,
-                "ended_utc": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+        # Split combined label into activity + path variant for downstream turn detection.
+        parts = (label or "").split("_", 1)
+        act = parts[0] if parts else label
+        path_kind = parts[1] if len(parts) > 1 else None
+        rec = {
+            "file": os.path.basename(path),
+            "activity": act,
+            "path": path_kind,  # straight / turn_left / turn_right (or None for standing)
+            "label": label,  # full combined label stored in CSV
+            "mount": mount,
+            "acc_rows_segment": d_acc,
+            "gyro_rows_segment": d_gyro,
+            "mag_rows_segment": d_mag,
+            "ended_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        manifest_append(rec)
         _log(
             log_box,
             'Stopped "{}": acc+{} gyro+{} mag+{} rows (approx.)'.format(label, d_acc, d_gyro, d_mag),
@@ -276,22 +300,30 @@ def main():
         row=btn_row, column=1, sticky="w", padx=(8, 0), pady=(12, 0)
     )
 
-    def row_for_activity(r, label, title):
-        ttk.Label(frm, text=title, font=("", 11, "bold")).grid(row=r, column=0, columnspan=2, sticky="w", pady=(14, 0))
+    def row_for_activity(r, activity, title, paths):
+        ttk.Label(frm, text=title, font=("", 11, "bold")).grid(
+            row=r, column=0, columnspan=2, sticky="w", pady=(14, 0)
+        )
         bf = ttk.Frame(frm)
         bf.grid(row=r + 1, column=0, columnspan=2, sticky="w")
-        ttk.Button(bf, text="Start " + label, command=lambda: start_segment(label)).pack(side="left")
-        ttk.Button(bf, text="Stop " + label, command=lambda: stop_segment(label)).pack(side="left", padx=(10, 0))
+        for p in paths:
+            lbl = _label(activity, p)
+            pretty = activity if p is None else "{} ({})".format(activity, p)
+            ttk.Button(bf, text="Start " + pretty, command=lambda l=lbl: start_segment(l)).pack(side="left")
+            ttk.Button(bf, text="Stop " + pretty, command=lambda l=lbl: stop_segment(l)).pack(side="left", padx=(10, 14))
 
-    row_for_activity(5, "standing", "1 — Standing")
-    row_for_activity(7, "walking", "2 — Walking")
-    row_for_activity(9, "running", "3 — Running")
+    row = 5
+    row_for_activity(row, "standing", "1 — Standing", [None])
+    row += 2
+    row_for_activity(row, "walking", "2 — Walking", ["straight", "turn_left", "turn_right"])
+    row += 2
+    row_for_activity(row, "running", "3 — Running", ["straight", "turn_left", "turn_right"])
 
     ttk.Label(
         frm,
         text=(
             "Tip: keep the watch orientation similar between sessions. "
-            "For ML, tens of minutes spread across these three buttons is often enough to beat a generic web model."
+            "For turn detection, record straight/left/right with consistent turn radius and speed."
         ),
         wraplength=760,
         foreground="#444",
