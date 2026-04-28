@@ -56,6 +56,14 @@ python3 metawear_imu_stream.py <MAC> --webui --activity --activity-backend fewsh
   --activity-model ./models/activity_fewshot.json --csv ./imu_run.csv
 ```
 
+**Stats-threshold model (fastest live path; based on acc magnitude SD)**
+
+```bash
+python3 har_imu/train_stats_activity.py --labeled-root ./labeled_data --out ./models/activity_stats.json
+python3 metawear_imu_stream.py <MAC> --webui --activity --activity-backend stats \
+  --activity-model ./models/activity_stats.json --csv ./imu_run.csv
+```
+
 Optional RandomForest (only if scikit-learn works in your environment):
 
 ```bash

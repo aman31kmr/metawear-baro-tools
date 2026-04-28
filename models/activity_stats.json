@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "kind": "stats_threshold_v1",
+  "primary_feature": "acc_mag_sd",
+  "window_s": 2.0,
+  "stride_s": 1.0,
+  "thresholds": {
+    "stand_walk_acc_sd": 0.11900264527496515,
+    "walk_run_acc_sd": 0.658574836732113
+  },
+  "calibration": {
+    "standing_acc_sd_median": 0.013864519869006067,
+    "walking_acc_sd_median": 0.22414077068092422,
+    "running_acc_sd_median": 1.0930089027833019,
+    "n_windows": {
+      "standing": 33,
+      "walking": 42,
+      "running": 29
+    }
+  }
+}

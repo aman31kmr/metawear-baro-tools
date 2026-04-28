@@ -596,6 +596,16 @@ def run_webui(
 
             bundle = load_activity_model(activity_model)
             activity_est = FewShotStreamEstimator(bundle)
+        elif b in ("stats", "stats_threshold", "threshold"):
+            if not activity_model:
+                raise SystemExit("--activity-backend stats requires --activity-model PATH.json (from train_stats_activity.py)")
+            from har_imu.stats_threshold_estimator import (
+                StatsThresholdStreamEstimator,
+                load_stats_model,
+            )
+
+            model = load_stats_model(activity_model)
+            activity_est = StatsThresholdStreamEstimator(model)
         elif b in ("nli_zero", "nli", "zero_shot", "zeroshot"):
             from har_imu.nli_zero_shot_estimator import NLIZeroShotStreamEstimator
 
@@ -793,8 +803,9 @@ def main():
         default="heuristic",
         metavar="NAME",
         help=(
-            "With --activity: heuristic | fewshot | nli_zero. "
+            "With --activity: heuristic | fewshot | stats | nli_zero. "
             "fewshot uses --activity-model PATH (.json centroid or .joblib sklearn; see train_fewshot_activity.py). "
+            "stats uses --activity-model PATH.json (train with har_imu/train_stats_activity.py). "
             "nli_zero uses HuggingFace NLI (install transformers torch; slow on CPU)."
         ),
     )
