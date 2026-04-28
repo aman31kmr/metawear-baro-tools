@@ -3,7 +3,7 @@ description: After code changes, commit and push to GitHub so work is not lost.
 alwaysApply: true
 ---
 
-# Git + docs: commit, push, and keep README current
+# Git + docs: commit, push, and keep README user-facing
 
 When you finish a coherent set of edits in this repository:
 
@@ -11,7 +11,8 @@ When you finish a coherent set of edits in this repository:
 2. `git add` the relevant paths (or `-A` when the whole change set should ship).
 3. **Update `README.md`** to reflect what changed:
    - Document new flags / commands / expected outputs
-   - If you add or change branches, update a **Branches** section describing what each branch is for and how to run it
+   - Keep it **public/user-facing**: do not include internal notes, temporary experiments, private context, or branch-by-branch planning.
+   - Prefer describing **capabilities** and **how to run** them on the default path.
 4. `git commit -m "..."` with a short, accurate message (present tense, what changed and why if non-obvious).
 5. **Always push** so the remote stays in sync. In this repo local `main` tracks
    `origin/har-imu-labeled-stream` (different names), so plain `git push` may

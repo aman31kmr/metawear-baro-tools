@@ -10,14 +10,6 @@ The vendored SDK lives under `third_party/metawear-sdk-python/`. Run scripts fro
 - System packages as needed for the MetaWear Python SDK (see MbientLab docs).
 - Optional ML: `pip install -r requirements-har-ml.txt` (tqdm; sklearn/transformers only if you use those paths).
 
-## Branches
-
-This repo uses feature branches for experiments. Recommended starting points:
-
-- **`har-imu-labeled-stream`**: activity recognition finalized around `--activity-backend stats` (robust SD + persistence) and labeled-data tooling.
-- **`turn_detection`**: recording UI updated to collect `walking/running` with `straight/turn_left/turn_right` sublabels (in progress).
-- **`4_sensors`**: `metawear_imu_stream.py` streams **acc/gyro/mag + barometer** in the same web UI + CSV (temporary experiment).
-
 ## Barometer
 
 | Script | Purpose |
