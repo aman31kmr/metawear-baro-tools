@@ -694,7 +694,13 @@ def run_webui(
             )
 
             model = load_stats_model(activity_model)
-            activity_est = StatsThresholdStreamEstimator(model)
+            activity_est = StatsThresholdStreamEstimator(
+                model,
+                # Spike immunity defaults: winsorize + persistence
+                clip_quantiles=(5.0, 95.0),
+                min_state_s=2.5,
+                require_streak=2,
+            )
         elif b in ("nli_zero", "nli", "zero_shot", "zeroshot"):
             from har_imu.nli_zero_shot_estimator import NLIZeroShotStreamEstimator
 
