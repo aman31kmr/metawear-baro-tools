@@ -91,17 +91,6 @@ Each session writes `session_<timestamp>/` with segment CSVs and `manifest.jsonl
 - `imu_csv_format.py` — Parses legacy 5-column and 6-column (`epoch_ms`) IMU rows (and optional 7th `activity` column).
 - `analyze_imu_csv.py` — Stats and sanity checks on captured IMU CSVs.
 
-## Push to GitHub (feature branch)
-
-HTTPS may return **403** if the PAT lacks **repo** write access or cached credentials are wrong. SSH is often easier:
-
-```bash
-chmod +x scripts/git_push_feature.sh
-./scripts/git_push_feature.sh har-imu-labeled-stream
-```
-
-The script can create `~/.ssh/id_ed25519_metawear_github`, print the **public** key to add at [GitHub SSH keys](https://github.com/settings/keys), point `origin` at `git@github.com:aman31kmr/metawear-baro-tools.git`, and push `main` to the named branch. Pass a different branch name as the first argument. If you do not have push access, fork the repo, `git remote set-url origin git@github.com:<you>/metawear-baro-tools.git`, then run the same script.
-
 ## Example commands (one board MAC)
 
 ```bash
