@@ -14,10 +14,9 @@ Usage:
   python3 metawear_imu_stream.py --scan --scan-seconds 8
   python3 metawear_imu_stream.py CF:96:FE:AD:63:E9 --webui --csv ./run_imu.csv
   python3 metawear_imu_stream.py CF:96:FE:AD:63:E9 --webui --activity --csv ./run_imu.csv
-  python3 har_imu/train_fewshot_activity.py --labeled-root ./labeled_data --out ./models/activity_fewshot.json
-  python3 metawear_imu_stream.py CF:96:FE:AD:63:E9 --webui --activity --activity-backend fewshot \\
-      --activity-model ./models/activity_fewshot.json --csv ./run_imu.csv
-  python3 metawear_imu_stream.py CF:96:FE:AD:63:E9 --webui --activity --activity-backend nli_zero --csv ./run_imu.csv
+  python3 har_imu/train_stats_activity.py --labeled-root ./labeled_data --out ./models/activity_stats.json
+  python3 metawear_imu_stream.py CF:96:FE:AD:63:E9 --webui --activity --activity-backend stats \\
+      --activity-model ./models/activity_stats.json --csv ./run_imu.csv
   python3 metawear_imu_stream.py CF:96:FE:AD:63:E9 --seconds 30 --csv ./run_imu.csv
 """
 from __future__ import print_function
@@ -678,14 +677,7 @@ def run_webui(
     activity_est = None
     if enable_activity:
         b = (activity_backend or "heuristic").strip().lower()
-        if b == "fewshot":
-            if not activity_model:
-                raise SystemExit("--activity-backend fewshot requires --activity-model PATH (.json or .joblib)")
-            from har_imu.stream_ml_estimator import FewShotStreamEstimator, load_activity_model
-
-            bundle = load_activity_model(activity_model)
-            activity_est = FewShotStreamEstimator(bundle)
-        elif b in ("stats", "stats_threshold", "threshold"):
+        if b in ("stats", "stats_threshold", "threshold"):
             if not activity_model:
                 raise SystemExit("--activity-backend stats requires --activity-model PATH.json (from train_stats_activity.py)")
             from har_imu.stats_threshold_estimator import (
@@ -701,10 +693,6 @@ def run_webui(
                 min_state_s=2.5,
                 require_streak=2,
             )
-        elif b in ("nli_zero", "nli", "zero_shot", "zeroshot"):
-            from har_imu.nli_zero_shot_estimator import NLIZeroShotStreamEstimator
-
-            activity_est = NLIZeroShotStreamEstimator(window_s=14.0, min_recompute_s=1.5, vote_len=5)
         else:
             from har_imu import RealtimeActivityEstimator
 
@@ -898,17 +886,15 @@ def main():
         default="heuristic",
         metavar="NAME",
         help=(
-            "With --activity: heuristic | fewshot | stats | nli_zero. "
-            "fewshot uses --activity-model PATH (.json centroid or .joblib sklearn; see train_fewshot_activity.py). "
+            "With --activity: heuristic | stats. "
             "stats uses --activity-model PATH.json (train with har_imu/train_stats_activity.py). "
-            "nli_zero uses HuggingFace NLI (install transformers torch; slow on CPU)."
         ),
     )
     parser.add_argument(
         "--activity-model",
         default=None,
         metavar="PATH",
-        help="With --activity-backend fewshot: JSON or joblib from train_fewshot_activity.py",
+        help="With --activity-backend stats: JSON from train_stats_activity.py",
     )
     parser.add_argument("--webui-port", type=int, default=8000, help="Port for --webui")
     parser.add_argument(

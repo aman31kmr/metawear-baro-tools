@@ -1,6 +1,6 @@
 # MetaWear barometer and IMU tools (USB/BLE)
 
-Python helpers for MbientLab **MetaWear / MetaMotion** boards: barometer streaming and logging, **sensor-fusion IMU** (corrected acc / gyro / mag) to CSV with optional live web UI, **activity** hints (heuristic, few-shot model, or optional NLI zero-shot), and a small **labeled recording lab** for human-activity data collection.
+Python helpers for MbientLab **MetaWear / MetaMotion** boards: barometer streaming and logging, **sensor-fusion IMU** (corrected acc / gyro / mag) to CSV with optional live web UI, **activity** recognition (heuristic + stats-threshold), and a small **labeled recording lab** for human-activity data collection.
 
 The vendored SDK lives under `third_party/metawear-sdk-python/`. Run scripts from the **repo root** so imports resolve.
 
@@ -45,8 +45,7 @@ Activity JSON is served at `GET /activity` (about 1 s refresh from the UI). Back
 | `--activity-backend` | Behavior |
 |----------------------|----------|
 | `heuristic` (default) | Rules on linear-acc magnitude + cadence band (`har_imu/realtime_estimator.py`). |
-| `fewshot` | Needs `--activity-model PATH` to a JSON centroid model or sklearn joblib from training (below). |
-| `nli_zero` | Optional HuggingFace NLI on a text summary of the window; install `transformers` + `torch` (slow on CPU). |
+| `stats` | Stats-threshold model using **robust acc magnitude SD** + persistence gating (train via `har_imu/train_stats_activity.py`). |
 
 ### Activity recognition: what’s implemented
 
@@ -62,11 +61,6 @@ Backends:
   - Code: `har_imu/realtime_estimator.py`
   - Uses a sliding window of **linear-acc magnitude** + FFT band energy (cadence proxy) + a vote smoother.
 
-- **Few-shot (`--activity-backend fewshot`)**
-  - Train: `har_imu/train_fewshot_activity.py` → `models/activity_fewshot.json` (centroid) or optional `.joblib` (sklearn).
-  - Stream: `har_imu/stream_ml_estimator.py`
-  - Extracts a compact 12-D feature vector from a window (time + spectrum summaries) and classifies by nearest centroid / RF.
-
 - **Stats-threshold (`--activity-backend stats`)** (recommended for “fast + robust” live use)
   - Train: `har_imu/train_stats_activity.py` → `models/activity_stats.json`
     - Computes **windowed acc magnitude SD** per activity from labeled CSVs.
@@ -78,18 +72,6 @@ Backends:
       - requires a short **streak** of consistent raw predictions
       - enforces a minimum **dwell time** in the current state
     - This makes “short spike” artifacts (like you created in `imu_run3.csv`) much less likely to flip the activity.
-
-- **NLI zero-shot (`--activity-backend nli_zero`)**
-  - Code: `har_imu/nli_zero_shot_estimator.py`
-  - Optional and slower: converts numeric window features into a short text summary and runs HuggingFace zero-shot classification.
-
-**Few-shot model from your labeled sessions**
-
-```bash
-python3 har_imu/train_fewshot_activity.py --labeled-root ./labeled_data --out ./models/activity_fewshot.json
-python3 metawear_imu_stream.py <MAC> --webui --activity --activity-backend fewshot \
-  --activity-model ./models/activity_fewshot.json --csv ./imu_run.csv
-```
 
 **Stats-threshold model (fastest live path; based on acc magnitude SD)**
 
@@ -104,13 +86,6 @@ To make it switch to **running earlier**, lower the walk→run threshold by chan
 ```bash
 python3 har_imu/train_stats_activity.py --labeled-root ./labeled_data --out ./models/activity_stats.json \
   --walk-run-lo-q 80 --walk-run-hi-q 10
-```
-
-Optional RandomForest (only if scikit-learn works in your environment):
-
-```bash
-python3 har_imu/train_fewshot_activity.py --labeled-root ./labeled_data \
-  --out ./models/activity_fewshot.json --sklearn-out ./models/activity_fewshot_rf.joblib
 ```
 
 **Labeled recording (Tk UI)**
