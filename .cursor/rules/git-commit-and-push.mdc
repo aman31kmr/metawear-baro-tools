@@ -10,10 +10,12 @@ When you finish a coherent set of edits in this repository:
 1. Run `git status` and ensure only intended files are staged.
 2. `git add` the relevant paths (or `-A` when the whole change set should ship).
 3. `git commit -m "..."` with a short, accurate message (present tense, what changed and why if non-obvious).
-4. **Always push** so the remote stays in sync:
-   - If `main` tracks `origin/har-imu-labeled-stream` (branch name mismatch), use:
-     `git push origin HEAD:har-imu-labeled-stream`
-   - Otherwise use `git push` or the branch the user uses for collaboration.
+4. **Always push** so the remote stays in sync. In this repo local `main` tracks
+   `origin/har-imu-labeled-stream` (different names), so plain `git push` may
+   fail; use:
+   `git push origin HEAD:har-imu-labeled-stream`
+   until the default branch is renamed to match. If remotes or branch names change,
+   use the equivalent explicit refspec or `git push -u origin <local>:<remote>`.
 5. If push fails (auth, 403, publickey), report the error and the exact command to retry after the user fixes credentials; do not skip commit locally.
 
 Do not leave local-only commits when the user expects GitHub to mirror the repo.
