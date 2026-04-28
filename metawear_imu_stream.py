@@ -58,7 +58,7 @@ _INDEX_HTML = r"""<!doctype html>
   </style>
 </head>
 <body>
-  <h2 style="margin: 0 0 10px 0;">MetaWear IMU (live)</h2>
+  <h2 style="margin: 0 0 10px 0;">MetaWear IMU + Barometer (live)</h2>
   <div class="row">
     <button id="stopBtn" title="Stops streaming and saves CSV + PNG">Stop</button>
     <span class="muted">Separate fusion streams → n differs slightly. Charts use board <code>epoch_ms</code> time (see CSV).</span>
@@ -152,7 +152,7 @@ async function tick(){
       if (block.latest) {
         const v = block.latest;
         if (k === 'baro') {
-          document.getElementById('txt_'+k).textContent = `pressure_pa=${v[0].toFixed(1)}`;
+          document.getElementById('txt_'+k).textContent = `height_m=${v[0].toFixed(3)}`;
         } else {
           document.getElementById('txt_'+k).textContent =
             `x=${v[0].toFixed(4)}  y=${v[1].toFixed(4)}  z=${v[2].toFixed(4)}`;
@@ -166,7 +166,7 @@ async function tick(){
         nextFrom[k] = block.next_from ?? nextFrom[k];
       }
     }
-    const ylab = { acc: '|a| (g)', gyro: '|ω| (deg/s)', mag: '|B| (µT)', baro: 'Pressure (Pa)' };
+    const ylab = { acc: '|a| (g)', gyro: '|ω| (deg/s)', mag: '|B| (µT)', baro: 'Δheight (m)' };
     drawChart(document.getElementById('c_acc'), buf.acc.t, buf.acc.m, ylab.acc);
     drawChart(document.getElementById('c_gyro'), buf.gyro.t, buf.gyro.m, ylab.gyro);
     drawChart(document.getElementById('c_mag'), buf.mag.t, buf.mag.m, ylab.mag);
@@ -280,6 +280,15 @@ def _mag(x, y, z):
     return math.sqrt(x * x + y * y + z * z)
 
 
+def _height_from_pressure_m(p_pa, p0_pa):
+    # International Standard Atmosphere approximation (good for relative changes).
+    # h = 44330 * (1 - (P/P0)^0.1903)
+    try:
+        return 44330.0 * (1.0 - pow(float(p_pa) / float(p0_pa), 0.1903))
+    except Exception:
+        return 0.0
+
+
 def save_imu_session_plot(csv_path):
     """Read long-format IMU CSV; write <stem>.png with four subplots (acc/gyro/mag/baro)."""
     import matplotlib
@@ -347,7 +356,7 @@ def save_imu_session_plot(csv_path):
         ("Accelerometer |a| (g)", "acc"),
         ("Gyroscope |ω| (deg/s)", "gyro"),
         ("Magnetometer |B| (µT)", "mag"),
-        ("Barometer pressure (Pa)", "baro"),
+        ("Barometer Δheight (m)", "baro"),
     )
     fig, axes = plt.subplots(
         4,
@@ -491,6 +500,7 @@ class IMUStreamer:
         self.activity = activity_estimator
         self._baro_sig = None
         self._baro_cb = None
+        self._baro_p0_pa = None
 
     def _open_csv(self):
         """Open or append CSV; must not hold ``_csv_io_lock`` (acquires it internally)."""
@@ -596,10 +606,15 @@ class IMUStreamer:
                 epoch_ms = None
             ts = datetime.now(timezone.utc)
             try:
-                val = float(parse_value(datap))
+                p_pa = float(parse_value(datap))
             except Exception:
                 return
-            x, y, z = val, 0.0, 0.0
+            if self._baro_p0_pa is None:
+                self._baro_p0_pa = float(p_pa)
+                height_m = 0.0
+            else:
+                height_m = float(_height_from_pressure_m(p_pa, self._baro_p0_pa))
+            x, y, z = float(height_m), 0.0, 0.0
             if self.csv_writer is not None and epoch_ms is not None:
                 row = [
                     ts.isoformat(),
@@ -622,8 +637,8 @@ class IMUStreamer:
                     t_sec = (int(epoch_ms) - self._epoch_anchor_ms) / 1000.0
                 else:
                     t_sec = 0.0
-                self._series_baro.append((t_sec, float(val)))
-                self.latest_xyz["baro"] = (float(val), 0.0, 0.0)
+                self._series_baro.append((t_sec, float(height_m)))
+                self.latest_xyz["baro"] = (float(height_m), 0.0, 0.0)
                 self.sample_count["baro"] += 1
 
         return data_handler
@@ -663,7 +678,7 @@ class IMUStreamer:
             self.callbacks.append(cb)
             libmetawear.mbl_mw_datasignal_subscribe(sig, None, cb)
 
-        # Barometer (pressure Pa)
+        # Barometer (pressure->relative height, meters)
         if libmetawear.mbl_mw_metawearboard_lookup_module(self.board, Module.BAROMETER) != Model.NA:
             try:
                 libmetawear.mbl_mw_baro_bosch_set_oversampling(
