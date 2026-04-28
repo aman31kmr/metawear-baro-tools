@@ -1,0 +1,9 @@
+{"file": "standing_wrist_0001.csv", "activity": "standing", "mount": "wrist", "acc_rows_segment": 315, "gyro_rows_segment": 172, "mag_rows_segment": 91, "ended_utc": "2026-04-28T00:20:39.442140+00:00"}
+{"file": "standing_wrist_0002.csv", "activity": "standing", "mount": "wrist", "acc_rows_segment": 515, "gyro_rows_segment": 469, "mag_rows_segment": 422, "ended_utc": "2026-04-28T00:20:49.524561+00:00"}
+{"file": "standing_wrist_0003.csv", "activity": "standing", "mount": "wrist", "acc_rows_segment": 1151, "gyro_rows_segment": 1065, "mag_rows_segment": 983, "ended_utc": "2026-04-28T00:21:13.760993+00:00"}
+{"file": "walking_wrist_0001.csv", "activity": "walking", "mount": "wrist", "acc_rows_segment": 772, "gyro_rows_segment": 634, "mag_rows_segment": 492, "ended_utc": "2026-04-28T00:21:43.816802+00:00"}
+{"file": "walking_wrist_0002.csv", "activity": "walking", "mount": "wrist", "acc_rows_segment": 478, "gyro_rows_segment": 444, "mag_rows_segment": 399, "ended_utc": "2026-04-28T00:22:44.656483+00:00"}
+{"file": "walking_wrist_0003.csv", "activity": "walking", "mount": "wrist", "acc_rows_segment": 741, "gyro_rows_segment": 604, "mag_rows_segment": 463, "ended_utc": "2026-04-28T00:23:13.634814+00:00"}
+{"file": "running_wrist_0001.csv", "activity": "running", "mount": "wrist", "acc_rows_segment": 467, "gyro_rows_segment": 406, "mag_rows_segment": 351, "ended_utc": "2026-04-28T00:23:45.030509+00:00"}
+{"file": "running_wrist_0002.csv", "activity": "running", "mount": "wrist", "acc_rows_segment": 620, "gyro_rows_segment": 525, "mag_rows_segment": 440, "ended_utc": "2026-04-28T00:24:05.566006+00:00"}
+{"file": "running_wrist_0003.csv", "activity": "running", "mount": "wrist", "acc_rows_segment": 398, "gyro_rows_segment": 340, "mag_rows_segment": 281, "ended_utc": "2026-04-28T00:24:35.507193+00:00"}

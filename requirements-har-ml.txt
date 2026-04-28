@@ -1,0 +1,11 @@
+# Few-shot: default training is numpy-only (JSON centroid). tqdm recommended.
+tqdm>=4.0
+
+# Optional: RandomForest via train_fewshot_activity.py --sklearn-out PATH.joblib
+# scikit-learn>=1.3,<2
+# joblib>=1.3
+
+# Optional: NLI zero-shot (--activity-backend nli_zero); large first-time download
+# transformers>=4.36
+# torch>=2.0
+# sentencepiece>=0.1.99

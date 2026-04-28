@@ -1,0 +1,18 @@
+.metawear/
+__pycache__/
+*.pyc
+*.pyo
+.env/
+venv/
+env/
+
+# Local IMU/barometer captures (keep labeled HAR under labeled_data/)
+*.csv
+!labeled_data/**/*.csv
+*.png
+!labeled_data/**/*.png
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
