@@ -398,11 +398,23 @@ class IMUStreamer:
             with open(self.csv_path, "r", newline="") as rf:
                 first = rf.readline()
             if "epoch_ms" not in first:
-                raise RuntimeError(
-                    "Existing CSV has the old 5-column header (no epoch_ms). "
-                    "Appending 6-column rows would mis-align columns in spreadsheets and DictReader. "
-                    "Use a new --csv path (recommended) or delete/rename this file, then re-record."
+                # Auto-rotate to a new file instead of crashing: keeps legacy CSV intact.
+                base, ext = os.path.splitext(self.csv_path)
+                ext = ext or ".csv"
+                cand = base + "_epoch" + ext
+                k = 2
+                while os.path.exists(cand) and os.path.getsize(cand) > 0:
+                    cand = base + "_epoch{}".format(k) + ext
+                    k += 1
+                print(
+                    "NOTE: {} has legacy 5-column header; writing new 6-column CSV to {}".format(
+                        os.path.basename(self.csv_path),
+                        os.path.basename(cand),
+                    ),
+                    flush=True,
                 )
+                self.csv_path = cand
+                new_file = True
         self.csv_file = open(self.csv_path, "a", newline="")
         self.csv_writer = csv.writer(self.csv_file)
         if new_file:
