@@ -330,7 +330,7 @@ def save_imu_session_plot(csv_path):
     fig, axes = plt.subplots(
         3,
         1,
-        figsize=(10, 8),
+        figsize=(13, 9),
         layout="constrained",
         sharex=bool(use_board_time),
     )
@@ -342,13 +342,19 @@ def save_imu_session_plot(csv_path):
     for ax, (title, key) in zip(axes, titles):
         td, md = series[key]["t"], series[key]["m"]
         if td:
-            ax.plot(td, md, color="#2563eb", linewidth=1.0, marker="o", markersize=2, alpha=0.85)
+            # Downsample for legible static PNGs; live web UI remains fully interactive.
+            n = len(td)
+            stride = max(1, n // 6000)
+            if stride > 1:
+                td = td[::stride]
+                md = md[::stride]
+            ax.plot(td, md, color="#2563eb", linewidth=1.1, alpha=0.9, rasterized=True)
         ax.set_ylabel(title.split()[1])
         ax.set_title(title)
         ax.grid(True, alpha=0.3)
     axes[-1].set_xlabel(xlab)
     fig.suptitle(os.path.basename(csv_path), fontsize=11)
-    fig.savefig(out_png, dpi=150)
+    fig.savefig(out_png, dpi=240)
     plt.close(fig)
     print("Saved plot: {}".format(out_png), flush=True)
 
