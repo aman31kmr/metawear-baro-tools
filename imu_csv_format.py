@@ -18,7 +18,7 @@ def parse_imu_csv_row(parts):
             epoch_ms = int(float(parts[1]))
         except (TypeError, ValueError):
             epoch_ms = None
-        if epoch_ms is not None and s2 in ("acc", "gyro", "mag"):
+        if epoch_ms is not None and s2 in ("acc", "gyro", "mag", "baro"):
             try:
                 x, y, z = float(parts[3]), float(parts[4]), float(parts[5])
             except ValueError:
@@ -35,7 +35,7 @@ def parse_imu_csv_row(parts):
                 out["activity"] = str(parts[6]).strip()
             return out
 
-    if s1 in ("acc", "gyro", "mag"):
+    if s1 in ("acc", "gyro", "mag", "baro"):
         try:
             x, y, z = float(parts[2]), float(parts[3]), float(parts[4])
         except ValueError:

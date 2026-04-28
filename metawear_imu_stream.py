@@ -44,7 +44,7 @@ _INDEX_HTML = r"""<!doctype html>
   <title>MetaWear IMU Live</title>
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 18px; color: #111827; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
     @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     .box { border: 1px solid #d1d5db; border-radius: 12px; padding: 12px; background: #fafafa; }
     .box h3 { margin: 0 0 8px 0; font-size: 15px; }
@@ -82,6 +82,12 @@ _INDEX_HTML = r"""<!doctype html>
       <div><span class="pill">n=<span id="n_mag">0</span></span></div>
       <div class="vals" id="txt_mag">—</div>
       <canvas id="c_mag" width="600" height="200"></canvas>
+    </div>
+    <div class="box">
+      <h3>Barometer</h3>
+      <div><span class="pill">n=<span id="n_baro">0</span></span></div>
+      <div class="vals" id="txt_baro">—</div>
+      <canvas id="c_baro" width="600" height="200"></canvas>
     </div>
   </div>
 
@@ -131,22 +137,26 @@ function drawChart(canvas, t, m, yLabel) {
   ctx.beginPath(); ctx.arc(lx, ly, 3.2, 0, 2*Math.PI); ctx.fill();
 }
 
-const nextFrom = { acc: 0, gyro: 0, mag: 0 };
-const buf = { acc: {t:[],m:[]}, gyro: {t:[],m:[]}, mag: {t:[],m:[]} };
+const nextFrom = { acc: 0, gyro: 0, mag: 0, baro: 0 };
+const buf = { acc: {t:[],m:[]}, gyro: {t:[],m:[]}, mag: {t:[],m:[]}, baro: {t:[],m:[]} };
 
 async function tick(){
   try {
-    const q = `acc=${nextFrom.acc}&gyro=${nextFrom.gyro}&mag=${nextFrom.mag}`;
+    const q = `acc=${nextFrom.acc}&gyro=${nextFrom.gyro}&mag=${nextFrom.mag}&baro=${nextFrom.baro}`;
     const r = await fetch(`/delta?${q}`, {cache:'no-store'});
     const j = await r.json();
-    for (const k of ['acc','gyro','mag']) {
+    for (const k of ['acc','gyro','mag','baro']) {
       const block = j[k];
       if (!block) continue;
       document.getElementById('n_'+k).textContent = block.n ?? 0;
       if (block.latest) {
         const v = block.latest;
-        document.getElementById('txt_'+k).textContent =
-          `x=${v[0].toFixed(4)}  y=${v[1].toFixed(4)}  z=${v[2].toFixed(4)}`;
+        if (k === 'baro') {
+          document.getElementById('txt_'+k).textContent = `pressure_pa=${v[0].toFixed(1)}`;
+        } else {
+          document.getElementById('txt_'+k).textContent =
+            `x=${v[0].toFixed(4)}  y=${v[1].toFixed(4)}  z=${v[2].toFixed(4)}`;
+        }
       }
       if (block.t && block.m && block.t.length) {
         for (let i=0;i<block.t.length;i++) {
@@ -156,10 +166,11 @@ async function tick(){
         nextFrom[k] = block.next_from ?? nextFrom[k];
       }
     }
-    const ylab = { acc: '|a| (g)', gyro: '|ω| (deg/s)', mag: '|B| (µT)' };
+    const ylab = { acc: '|a| (g)', gyro: '|ω| (deg/s)', mag: '|B| (µT)', baro: 'Pressure (Pa)' };
     drawChart(document.getElementById('c_acc'), buf.acc.t, buf.acc.m, ylab.acc);
     drawChart(document.getElementById('c_gyro'), buf.gyro.t, buf.gyro.m, ylab.gyro);
     drawChart(document.getElementById('c_mag'), buf.mag.t, buf.mag.m, ylab.mag);
+    drawChart(document.getElementById('c_baro'), buf.baro.t, buf.baro.m, ylab.baro);
   } catch(e) {}
   setTimeout(tick, 120);
 }
@@ -246,6 +257,8 @@ except ModuleNotFoundError:
 from mbientlab.metawear import MetaWear, libmetawear, parse_value
 from mbientlab.metawear.cbindings import (
     FnVoid_VoidP_DataP,
+    BaroBoschIirFilter,
+    BaroBoschOversampling,
     Model,
     Module,
     SensorFusionAccRange,
@@ -268,7 +281,7 @@ def _mag(x, y, z):
 
 
 def save_imu_session_plot(csv_path):
-    """Read long-format IMU CSV; write <stem>.png with three magnitude subplots."""
+    """Read long-format IMU CSV; write <stem>.png with four subplots (acc/gyro/mag/baro)."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -288,7 +301,11 @@ def save_imu_session_plot(csv_path):
             try:
                 name = rec["sensor"]
                 ts = datetime.fromisoformat(rec["utc_iso"].replace("Z", "+00:00"))
-                mm = _mag(rec["x"], rec["y"], rec["z"])
+                if name == "baro":
+                    # barometer value stored in x (Pa); y/z are 0 placeholders
+                    mm = float(rec["x"])
+                else:
+                    mm = _mag(rec["x"], rec["y"], rec["z"])
             except Exception:
                 continue
             staged.append((name, ts, rec.get("epoch_ms"), mm))
@@ -303,8 +320,13 @@ def save_imu_session_plot(csv_path):
             min_epoch_ms = ep if min_epoch_ms is None else min(min_epoch_ms, ep)
     use_board_time = min_epoch_ms is not None
 
-    series = {"acc": {"t": [], "m": []}, "gyro": {"t": [], "m": []}, "mag": {"t": [], "m": []}}
-    t0_utc = {"acc": None, "gyro": None, "mag": None}
+    series = {
+        "acc": {"t": [], "m": []},
+        "gyro": {"t": [], "m": []},
+        "mag": {"t": [], "m": []},
+        "baro": {"t": [], "m": []},
+    }
+    t0_utc = {"acc": None, "gyro": None, "mag": None, "baro": None}
 
     for name, ts, epoch_ms, mm in staged:
         if use_board_time and epoch_ms is not None:
@@ -325,9 +347,10 @@ def save_imu_session_plot(csv_path):
         ("Accelerometer |a| (g)", "acc"),
         ("Gyroscope |ω| (deg/s)", "gyro"),
         ("Magnetometer |B| (µT)", "mag"),
+        ("Barometer pressure (Pa)", "baro"),
     )
     fig, axes = plt.subplots(
-        3,
+        4,
         1,
         figsize=(13, 9),
         layout="constrained",
@@ -341,7 +364,7 @@ def save_imu_session_plot(csv_path):
     plot_tail_s = None
     if use_board_time:
         t_all = []
-        for k in ("acc", "gyro", "mag"):
+        for k in ("acc", "gyro", "mag", "baro"):
             t_all.extend(series[k]["t"])
         if t_all:
             span_all = max(t_all) - min(t_all)
@@ -418,7 +441,7 @@ def save_imu_session_plot(csv_path):
     axes[-1].set_xlabel(xlab)
     if plot_tail_s is not None and use_board_time:
         try:
-            t_max = max(max(series[k]["t"]) for k in ("acc", "gyro", "mag") if series[k]["t"])
+            t_max = max(max(series[k]["t"]) for k in ("acc", "gyro", "mag", "baro") if series[k]["t"])
             for ax in axes:
                 ax.set_xlim(max(0.0, t_max - float(plot_tail_s)), t_max)
         except Exception:
@@ -430,7 +453,7 @@ def save_imu_session_plot(csv_path):
 
 
 class IMUStreamer:
-    """Sensor fusion streams for corrected acc, gyro, mag; CSV append + ring buffers for UI."""
+    """Sensor fusion (acc/gyro/mag) + barometer pressure; CSV append + ring buffers for UI."""
 
     def __init__(self, mac, *, hci=None, csv_path="imu.csv", series_maxlen=0, activity_estimator=None):
         # csv_path may be None to stream without writing until ``switch_recording_file`` is used.
@@ -455,11 +478,19 @@ class IMUStreamer:
         self._series_acc = self._make_series()
         self._series_gyro = self._make_series()
         self._series_mag = self._make_series()
+        self._series_baro = self._make_series()
         # First board epoch_ms seen (any stream) — shared time axis for UI/plots vs host UTC.
         self._epoch_anchor_ms = None
-        self.sample_count = {"acc": 0, "gyro": 0, "mag": 0}
-        self.latest_xyz = {"acc": (0.0, 0.0, 0.0), "gyro": (0.0, 0.0, 0.0), "mag": (0.0, 0.0, 0.0)}
+        self.sample_count = {"acc": 0, "gyro": 0, "mag": 0, "baro": 0}
+        self.latest_xyz = {
+            "acc": (0.0, 0.0, 0.0),
+            "gyro": (0.0, 0.0, 0.0),
+            "mag": (0.0, 0.0, 0.0),
+            "baro": (0.0, 0.0, 0.0),  # pressure_pa in x; y/z placeholders
+        }
         self.activity = activity_estimator
+        self._baro_sig = None
+        self._baro_cb = None
 
     def _open_csv(self):
         """Open or append CSV; must not hold ``_csv_io_lock`` (acquires it internally)."""
@@ -557,6 +588,46 @@ class IMUStreamer:
 
         return data_handler
 
+    def _make_baro_handler(self):
+        def data_handler(_ctx, datap):
+            try:
+                epoch_ms = int(datap.contents.epoch)
+            except Exception:
+                epoch_ms = None
+            ts = datetime.now(timezone.utc)
+            try:
+                val = float(parse_value(datap))
+            except Exception:
+                return
+            x, y, z = val, 0.0, 0.0
+            if self.csv_writer is not None and epoch_ms is not None:
+                row = [
+                    ts.isoformat(),
+                    "{}".format(int(epoch_ms)),
+                    "baro",
+                    "{:.6f}".format(x),
+                    "{:.6f}".format(y),
+                    "{:.6f}".format(z),
+                ]
+                if self._activity_label_for_rows:
+                    row.append(self._activity_label_for_rows)
+                with self._csv_io_lock:
+                    if self.csv_writer is not None:
+                        self.csv_writer.writerow(row)
+                        self.csv_file.flush()
+            with self._lock:
+                if epoch_ms is not None:
+                    if self._epoch_anchor_ms is None:
+                        self._epoch_anchor_ms = int(epoch_ms)
+                    t_sec = (int(epoch_ms) - self._epoch_anchor_ms) / 1000.0
+                else:
+                    t_sec = 0.0
+                self._series_baro.append((t_sec, float(val)))
+                self.latest_xyz["baro"] = (float(val), 0.0, 0.0)
+                self.sample_count["baro"] += 1
+
+        return data_handler
+
     def start(self):
         kwargs = {}
         if self.hci:
@@ -592,6 +663,23 @@ class IMUStreamer:
             self.callbacks.append(cb)
             libmetawear.mbl_mw_datasignal_subscribe(sig, None, cb)
 
+        # Barometer (pressure Pa)
+        if libmetawear.mbl_mw_metawearboard_lookup_module(self.board, Module.BAROMETER) != Model.NA:
+            try:
+                libmetawear.mbl_mw_baro_bosch_set_oversampling(
+                    self.board, BaroBoschOversampling.LOW_POWER
+                )
+                libmetawear.mbl_mw_baro_bosch_set_iir_filter(self.board, BaroBoschIirFilter.OFF)
+                libmetawear.mbl_mw_baro_bosch_set_standby_time(self.board, 500.0)
+                libmetawear.mbl_mw_baro_bosch_write_config(self.board)
+                self._baro_sig = libmetawear.mbl_mw_baro_bosch_get_pressure_data_signal(self.board)
+                self._baro_cb = FnVoid_VoidP_DataP(self._make_baro_handler())
+                libmetawear.mbl_mw_datasignal_subscribe(self._baro_sig, None, self._baro_cb)
+                libmetawear.mbl_mw_baro_bosch_start(self.board)
+            except Exception:
+                self._baro_sig = None
+                self._baro_cb = None
+
         libmetawear.mbl_mw_sensor_fusion_start(self.board)
 
     def stop(self):
@@ -604,9 +692,19 @@ class IMUStreamer:
                     libmetawear.mbl_mw_datasignal_unsubscribe(sig)
                 except Exception:
                     pass
+            if self._baro_sig is not None:
+                try:
+                    libmetawear.mbl_mw_datasignal_unsubscribe(self._baro_sig)
+                except Exception:
+                    pass
             try:
                 if self.board is not None:
                     libmetawear.mbl_mw_sensor_fusion_stop(self.board)
+            except Exception:
+                pass
+            try:
+                if self.board is not None and self._baro_sig is not None:
+                    libmetawear.mbl_mw_baro_bosch_stop(self.board)
             except Exception:
                 pass
         finally:
@@ -627,8 +725,10 @@ class IMUStreamer:
                 self.board = None
                 self.signals = []
                 self.callbacks = []
+                self._baro_sig = None
+                self._baro_cb = None
 
-    def snapshot_delta_triple(self, from_acc, from_gyro, from_mag):
+    def snapshot_delta_quad(self, from_acc, from_gyro, from_mag, from_baro):
         def pack(series, from_idx):
             n_total = len(series)
             if from_idx >= n_total:
@@ -651,15 +751,18 @@ class IMUStreamer:
             acc_b = pack(self._series_acc, from_acc)
             gyro_b = pack(self._series_gyro, from_gyro)
             mag_b = pack(self._series_mag, from_mag)
+            baro_b = pack(self._series_baro, from_baro)
             counts = {
                 "acc": self.sample_count["acc"],
                 "gyro": self.sample_count["gyro"],
                 "mag": self.sample_count["mag"],
+                "baro": self.sample_count["baro"],
             }
         return {
             "acc": {**acc_b, "latest": latest["acc"], "n": counts["acc"]},
             "gyro": {**gyro_b, "latest": latest["gyro"], "n": counts["gyro"]},
             "mag": {**mag_b, "latest": latest["mag"], "n": counts["mag"]},
+            "baro": {**baro_b, "latest": latest["baro"], "n": counts["baro"]},
         }
 
 
@@ -752,9 +855,10 @@ def run_webui(
                     fa = int(params.get("acc", "0") or 0)
                     fg = int(params.get("gyro", "0") or 0)
                     fm = int(params.get("mag", "0") or 0)
+                    fb = int(params.get("baro", "0") or 0)
                 except Exception:
-                    fa = fg = fm = 0
-                snap = streamer.snapshot_delta_triple(fa, fg, fm)
+                    fa = fg = fm = fb = 0
+                snap = streamer.snapshot_delta_quad(fa, fg, fm, fb)
                 self._send(200, json.dumps(snap), content_type="application/json")
                 return
             self._send(404, "not found", content_type="text/plain")
@@ -875,7 +979,7 @@ def main():
             "Append rows: utc_iso,epoch_ms,sensor,x,y,z (epoch = board fusion clock ms). PNG on stop."
         ),
     )
-    parser.add_argument("--webui", action="store_true", help="Browser UI with three live charts")
+    parser.add_argument("--webui", action="store_true", help="Browser UI with four live charts (acc/gyro/mag/baro)")
     parser.add_argument(
         "--activity",
         action="store_true",
