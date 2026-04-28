@@ -3,19 +3,22 @@ description: After code changes, commit and push to GitHub so work is not lost.
 alwaysApply: true
 ---
 
-# Git: commit and push every change batch
+# Git + docs: commit, push, and keep README current
 
 When you finish a coherent set of edits in this repository:
 
 1. Run `git status` and ensure only intended files are staged.
 2. `git add` the relevant paths (or `-A` when the whole change set should ship).
-3. `git commit -m "..."` with a short, accurate message (present tense, what changed and why if non-obvious).
-4. **Always push** so the remote stays in sync. In this repo local `main` tracks
+3. **Update `README.md`** to reflect what changed:
+   - Document new flags / commands / expected outputs
+   - If you add or change branches, update a **Branches** section describing what each branch is for and how to run it
+4. `git commit -m "..."` with a short, accurate message (present tense, what changed and why if non-obvious).
+5. **Always push** so the remote stays in sync. In this repo local `main` tracks
    `origin/har-imu-labeled-stream` (different names), so plain `git push` may
    fail; use:
    `git push origin HEAD:har-imu-labeled-stream`
    until the default branch is renamed to match. If remotes or branch names change,
    use the equivalent explicit refspec or `git push -u origin <local>:<remote>`.
-5. If push fails (auth, 403, publickey), report the error and the exact command to retry after the user fixes credentials; do not skip commit locally.
+6. If push fails (auth, 403, publickey), report the error and the exact command to retry after the user fixes credentials; do not skip commit locally.
 
 Do not leave local-only commits when the user expects GitHub to mirror the repo.
