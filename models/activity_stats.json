@@ -6,7 +6,7 @@
   "stride_s": 1.0,
   "thresholds": {
     "stand_walk_acc_sd": 0.11900264527496515,
-    "walk_run_acc_sd": 0.658574836732113
+    "walk_run_acc_sd": 0.561506606301045
   },
   "calibration": {
     "standing_acc_sd_median": 0.013864519869006067,
@@ -16,6 +16,10 @@
       "standing": 33,
       "walking": 42,
       "running": 29
+    },
+    "walk_run_quantiles": {
+      "walking_lo_q": 90.0,
+      "running_hi_q": 10.0
     }
   }
 }

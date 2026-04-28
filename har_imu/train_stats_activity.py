@@ -146,6 +146,22 @@ def _pick_threshold(lo_vals, hi_vals):
     return float((c_lo + c_hi) * 0.5)
 
 
+def _pick_threshold_quantile(lo_vals, hi_vals, *, lo_q=90.0, hi_q=10.0):
+    """
+    Quantile-based boundary, biased toward earlier detection of the high-activity class.
+
+    Example: for walk->run, use midpoint( p90(walk), p10(run) ) which tends to be
+    lower than midpoint(medians), so it flips to running sooner.
+    """
+    if not lo_vals or not hi_vals:
+        return None
+    lo = np.asarray(lo_vals, dtype=np.float64)
+    hi = np.asarray(hi_vals, dtype=np.float64)
+    a = float(np.percentile(lo, float(lo_q)))
+    b = float(np.percentile(hi, float(hi_q)))
+    return float(0.5 * (a + b))
+
+
 def main():
     ap = argparse.ArgumentParser(description="Train stats-threshold activity model from labeled_data/")
     ap.add_argument(
@@ -155,6 +171,18 @@ def main():
     )
     ap.add_argument("--window-s", type=float, default=2.0, help="Window length in seconds")
     ap.add_argument("--stride-s", type=float, default=1.0, help="Stride between windows")
+    ap.add_argument(
+        "--walk-run-lo-q",
+        type=float,
+        default=90.0,
+        help="Quantile of walking acc_sd to use for walk->run threshold (default: 90)",
+    )
+    ap.add_argument(
+        "--walk-run-hi-q",
+        type=float,
+        default=10.0,
+        help="Quantile of running acc_sd to use for walk->run threshold (default: 10)",
+    )
     ap.add_argument(
         "--out",
         default="./models/activity_stats.json",
@@ -166,7 +194,13 @@ def main():
     d = collect_window_sds(root, window_s=args.window_s, stride_s=args.stride_s)
 
     thr_stand_walk = _pick_threshold(d["standing"]["acc_sd"], d["walking"]["acc_sd"])
-    thr_walk_run = _pick_threshold(d["walking"]["acc_sd"], d["running"]["acc_sd"])
+    # Bias earlier running detection using quantiles by default (p90 walk vs p10 run).
+    thr_walk_run = _pick_threshold_quantile(
+        d["walking"]["acc_sd"],
+        d["running"]["acc_sd"],
+        lo_q=args.walk_run_lo_q,
+        hi_q=args.walk_run_hi_q,
+    )
 
     if thr_stand_walk is None or thr_walk_run is None:
         raise SystemExit("Not enough windows to compute thresholds; record more data.")
@@ -189,6 +223,10 @@ def main():
                 "standing": len(d["standing"]["acc_sd"]),
                 "walking": len(d["walking"]["acc_sd"]),
                 "running": len(d["running"]["acc_sd"]),
+            },
+            "walk_run_quantiles": {
+                "walking_lo_q": float(args.walk_run_lo_q),
+                "running_hi_q": float(args.walk_run_hi_q),
             },
         },
     }

@@ -64,6 +64,13 @@ python3 metawear_imu_stream.py <MAC> --webui --activity --activity-backend stats
   --activity-model ./models/activity_stats.json --csv ./imu_run.csv
 ```
 
+To make it switch to **running earlier**, lower the walk→run threshold by changing the quantiles:
+
+```bash
+python3 har_imu/train_stats_activity.py --labeled-root ./labeled_data --out ./models/activity_stats.json \
+  --walk-run-lo-q 80 --walk-run-hi-q 10
+```
+
 Optional RandomForest (only if scikit-learn works in your environment):
 
 ```bash
