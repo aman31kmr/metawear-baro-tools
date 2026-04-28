@@ -30,6 +30,17 @@ USB detection (MetaMotionS class):
 python3 metawear_baro_log.py usb-scan
 ```
 
+## Push this tree to GitHub (new branch)
+
+HTTPS can return **403** if the stored token has no **repo** write scope or is stale. SSH is usually simpler:
+
+```bash
+chmod +x scripts/git_push_feature.sh
+./scripts/git_push_feature.sh har-imu-labeled-stream
+```
+
+The script creates `~/.ssh/id_ed25519_metawear_github` if missing, prints the **public** key to add at [GitHub SSH keys](https://github.com/settings/keys), sets `origin` to `git@github.com:aman31kmr/metawear-baro-tools.git`, and pushes `main` to that branch. Use a different branch name by passing it as the first argument.
+
 ## Commands you ran (example session)
 
 ```bash
