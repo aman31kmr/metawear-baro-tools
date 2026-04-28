@@ -762,6 +762,7 @@ class IMUStreamer:
                 "acc": list(self.latest_xyz["acc"]),
                 "gyro": list(self.latest_xyz["gyro"]),
                 "mag": list(self.latest_xyz["mag"]),
+                "baro": list(self.latest_xyz.get("baro", (0.0, 0.0, 0.0))),
             }
             acc_b = pack(self._series_acc, from_acc)
             gyro_b = pack(self._series_gyro, from_gyro)
